@@ -453,9 +453,9 @@ static void main_task(void *arg)
         switch (g_BoardState.wifiState)
         {
             case WIFI_STATE_CLIENT:
-                SetBoardToClient();
+                if (SetBoardToClient() == 0)
                 /* Suspend here until its time to swtich back to AP */
-                vTaskSuspend(NULL);
+                	vTaskSuspend(NULL);
                 CleanUpClient();
                 break;
             case WIFI_STATE_AP:
@@ -580,11 +580,19 @@ static uint32_t SetBoardToClient()
         }
         else
         {
-            PRINTF("[i] Connected to Wi-Fi\r\nssid: %s\r\n[!]passphrase: %s\r\n", g_BoardState.ssid,
-                   g_BoardState.password);
-            g_BoardState.connected = true;
             char ip[16];
             WPL_GetIP(ip, 1);
+
+            if (strlen(ip) == 0 || strcmp(ip, "0.0.0.0") == 0)
+            {
+                PRINTF("[!] No valid IP address obtained. Forcing AP mode...\r\n");
+                g_BoardState.wifiState = WIFI_STATE_AP;
+                return 1;
+            }
+
+            PRINTF("[i] Connected to Wi-Fi\r\nssid: %s\r\n[!]passphrase: %s\r\n", g_BoardState.ssid,
+				   g_BoardState.password);
+			g_BoardState.connected = true;
             PRINTF(" Now join that network on your device and connect to this IP: %s\r\n", ip);
         }
     }
