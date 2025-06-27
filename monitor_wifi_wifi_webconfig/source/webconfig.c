@@ -22,6 +22,7 @@
 #include "webconfig.h"
 #include "cred_flash_storage.h"
 
+#include "mqtt_freertos.h"
 #include <stdio.h>
 
 #include "FreeRTOS.h"
@@ -73,6 +74,7 @@ const HTTPSRV_CGI_LINK_STRUCT cgi_lnk_tbl[] = {
  * Variables
  ******************************************************************************/
 struct board_state_variables g_BoardState;
+extern struct netif *netif_default;
 
 /*******************************************************************************
  * Code
@@ -385,6 +387,8 @@ static void main_task(void *arg)
 
     init_flash_storage(CONNECTION_INFO_FILENAME);
 
+    //reset_saved_wifi_credentials(CONNECTION_INFO_FILENAME);
+
     char ssid[WPL_WIFI_SSID_LENGTH];
     char password[WPL_WIFI_PASSWORD_LENGTH];
     char security[WIFI_SECURITY_LENGTH];
@@ -453,11 +457,12 @@ static void main_task(void *arg)
         switch (g_BoardState.wifiState)
         {
             case WIFI_STATE_CLIENT:
-                if (SetBoardToClient() == 0)
+                if(SetBoardToClient()==0)
                 /* Suspend here until its time to swtich back to AP */
                 	vTaskSuspend(NULL);
                 CleanUpClient();
                 break;
+
             case WIFI_STATE_AP:
             default:
                 SetBoardToAP();
@@ -585,16 +590,21 @@ static uint32_t SetBoardToClient()
 
             if (strlen(ip) == 0 || strcmp(ip, "0.0.0.0") == 0)
             {
-                PRINTF("[!] No valid IP address obtained. Forcing AP mode...\r\n");
-                g_BoardState.wifiState = WIFI_STATE_AP;
-                return 1;
+			   PRINTF("[!] No valid IP address obtained. Forcing AP mode...\r\n");
+			   g_BoardState.wifiState = WIFI_STATE_AP;
+			   return 1;
             }
 
             PRINTF("[i] Connected to Wi-Fi\r\nssid: %s\r\n[!]passphrase: %s\r\n", g_BoardState.ssid,
-				   g_BoardState.password);
-			g_BoardState.connected = true;
+			   g_BoardState.password);
+
+            g_BoardState.connected = true;
             PRINTF(" Now join that network on your device and connect to this IP: %s\r\n", ip);
+
+            // Si ya tenemos IP válida, lanzamos MQTT
+            mqtt_freertos_run_thread(netif_default);
         }
+
     }
     return 0;
 }
@@ -621,6 +631,13 @@ static uint32_t CleanUpClient()
 
     return 0;
 }
+
+
+////// MQTT ///////
+
+
+
+
 /*!
  * @brief Main function.
  */
