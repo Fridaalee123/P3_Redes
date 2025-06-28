@@ -34,12 +34,25 @@ void GPIO_init(void)
 	IO_MUX_SetPinMux(IO_MUX_GPIO1);
 	IO_MUX_SetPinMux(IO_MUX_GPIO12);
 
-	gpio_pin_config_t led_config = { kGPIO_DigitalOutput, 1U };
+	IO_MUX_SetPinMux(IO_MUX_GPIO25);
+
+	gpio_pin_config_t led_config =
+	{
+		kGPIO_DigitalOutput, 1U
+	};
+
+	// Botón SW2 (GPIO0_11 como entrada)
+	gpio_pin_config_t sw2_button_config =
+	{
+	    kGPIO_DigitalInput, 0U
+	};
 
 	// Inicializa los LEDs como salida
 	GPIO_PinInit(GPIO, 0U, LED_RED_PIN, &led_config);
 	GPIO_PinInit(GPIO, 0U, LED_GREEN_PIN, &led_config);
 	GPIO_PinInit(GPIO, 0U, LED_BLUE_PIN, &led_config);
+
+	GPIO_PinInit(GPIO, 0U, 11U, &sw2_button_config);
 
 	/* Enables the clock for the GPIO0 module */
 //	GPIO_PortInit(GPIO, 0);

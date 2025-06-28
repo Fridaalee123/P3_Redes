@@ -388,8 +388,6 @@ static void main_task(void *arg)
 
     init_flash_storage(CONNECTION_INFO_FILENAME);
 
-    //reset_saved_wifi_credentials(CONNECTION_INFO_FILENAME);
-
     char ssid[WPL_WIFI_SSID_LENGTH];
     char password[WPL_WIFI_PASSWORD_LENGTH];
     char security[WIFI_SECURITY_LENGTH];
@@ -455,6 +453,11 @@ static void main_task(void *arg)
          * Every time the Wi-Fi state changes, this loop will perform an iteration switching back
          * and fourth between the two states as required.
          */
+
+    	//uint32_t port_state = GPIO_PortRead(GPIO, SW2_PORT);
+
+
+
         switch (g_BoardState.wifiState)
         {
             case WIFI_STATE_CLIENT:
@@ -589,6 +592,13 @@ static uint32_t SetBoardToClient()
             char ip[16];
             WPL_GetIP(ip, 1);
 
+//            if (!(GPIO_PortRead(GPIO, 0U) & (1U << 11U)))
+//            {
+//                GPIO_PortToggle(GPIO, 0U, 1U << 0U);
+//                GPIO_PortToggle(GPIO, 0U, 1U << 1U);
+//            }
+
+
             if (strlen(ip) == 0 || strcmp(ip, "0.0.0.0") == 0)
             {
 			   PRINTF("[!] No valid IP address obtained. Forcing AP mode...\r\n");
@@ -636,7 +646,22 @@ static uint32_t CleanUpClient()
 
 ////// MQTT ///////
 
-
+void button_task(void *pvParameters)
+{
+	while (1)
+	{
+		if (!(GPIO_PortRead(GPIO, 0U) & (1U << 11U)))
+		{
+			GPIO_PortToggle(GPIO, 0U, 1U << 0U);
+			GPIO_PortToggle(GPIO, 0U, 1U << 1U);
+			//reset_saved_wifi_credentials(CONNECTION_INFO_FILENAME);
+			//NVIC_SystemReset();
+			PRINTF("\r\n[!] Se borraron las credenciales WiFi.\r\n");
+			PRINTF("[!] Por favor presiona el botón RESET de la placa para iniciar el modo de configuración de red.\r\n");
+		}
+		vTaskDelay(pdMS_TO_TICKS(50));
+	}
+}
 
 
 /*!
@@ -655,6 +680,13 @@ int main(void)
         while (1)
             ;
     }
+
+    if (xTaskCreate(button_task, "button_task", 2048, NULL, configMAX_PRIORITIES - 4, &g_BoardState.mainTask) != pdPASS)
+        {
+            PRINTF("[!] Button Task creation failed!\r\n");
+            while (1)
+                ;
+        }
 
     /* Run RTOS */
     vTaskStartScheduler();

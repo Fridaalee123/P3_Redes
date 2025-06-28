@@ -18,6 +18,9 @@
 #define turn_on		1U
 #define clean_all 	0xFFFFFFFF
 
+#define SW2_PORT 0U
+#define SW2_PIN  11U
+
 //Tipo enumerado con valores del 0 al 9
 typedef enum
 {
