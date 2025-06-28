@@ -24,8 +24,9 @@
 
 #include "mqtt_freertos.h"
 #include <stdio.h>
-
 #include "FreeRTOS.h"
+
+#include "GPIO.h"
 
 /*******************************************************************************
  * Prototypes
@@ -645,6 +646,7 @@ int main(void)
 {
     /* Initialize the hardware */
     BOARD_InitHardware();
+    GPIO_init();
 
     /* Create the main Task */
     if (xTaskCreate(main_task, "main_task", 2048, NULL, configMAX_PRIORITIES - 4, &g_BoardState.mainTask) != pdPASS)

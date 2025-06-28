@@ -19,6 +19,11 @@
 #include "lwip/api.h"
 #include "lwip/apps/mqtt.h"
 #include "lwip/tcpip.h"
+#include "FreeRTOS.h"
+#include "queue.h"
+
+#include "RGB.h"
+#include "Bits.h"
 
 // FIXME cleanup
 
@@ -47,6 +52,54 @@
 
 /*! @brief Priority of the temporary initialization thread. */
 #define APP_THREAD_PRIO DEFAULT_THREAD_PRIO
+
+#define HR_MAX_LIMIT 2200
+#define TEMP_MAX_LIMIT 38
+#define HR_MIN_LIMIT 1100
+#define TEMP_MIN_LIMIT 19
+#define PAYLOAD_BUFFER_SIZE 64  // Puedes ajustar el tamaño si esperas mensajes más grandes
+
+static uint8_t flag_alarm = 0;
+static uint8_t flag_msg = 0;
+static uint8_t flag_sp = FALSE;
+
+static char payload[PAYLOAD_BUFFER_SIZE];
+static uint16_t offset = 0;
+static int hr_value = 0;
+static int tmp_value = 0;
+
+static uint8_t prev_flag_msg = 0;     // Valor inicial que garantice publicación la primera vez
+static uint8_t prev_flag_alarm = 0;
+
+enum TopicID
+{
+    TOPIC_UNKNOWN,
+    TOPIC_SW,
+    TOPIC_MED,
+	TOPIC_HR,
+	TOPIC_TEMP,
+	TOPIC_ALARM,
+	TOPIC_MSG
+};
+
+enum MsgState
+{
+    OFF,
+	ON,
+	SUPPLY,
+	DANGER,
+	SAFE,
+	CAUTION
+};
+
+static enum TopicID current_topic_id = TOPIC_UNKNOWN;
+
+typedef struct {
+    enum TopicID topic;
+    char payload[PAYLOAD_BUFFER_SIZE];
+} MqttMessage;
+
+static QueueHandle_t mqtt_msg_queue;
 
 /*******************************************************************************
  * Prototypes
@@ -89,6 +142,37 @@ static volatile bool connected = false;
  * Code
  ******************************************************************************/
 
+void SetFlagAlarm(uint8_t value)
+{
+	flag_alarm = value;
+}
+
+void SetFlagMsg(uint8_t value)
+{
+	flag_msg = value;
+}
+
+uint8_t GetFlagMsg()
+{
+	return flag_msg;
+}
+
+uint8_t GetFlagAlarm()
+{
+	return flag_alarm;
+}
+
+void SetFlagStablePacient(uint8_t value)
+{
+	flag_sp = value;
+}
+
+uint8_t GetFlagStablePacient()
+{
+	return flag_sp;
+}
+
+
 /*!
  * @brief Called when subscription request finishes.
  */
@@ -113,6 +197,21 @@ static void mqtt_incoming_publish_cb(void *arg, const char *topic, u32_t tot_len
 {
     LWIP_UNUSED_ARG(arg);
 
+    if (strcmp(topic, "monitor/sw") == 0)
+		current_topic_id = TOPIC_SW;
+
+	else if (strcmp(topic, "monitor/med") == 0)
+		current_topic_id = TOPIC_MED;
+
+	else if (strcmp(topic, "lwip_topic/Pc") == 0)
+		current_topic_id = TOPIC_HR;
+
+	else if (strcmp(topic, "lwip_topic/Temp") == 0)
+		current_topic_id = TOPIC_TEMP;
+
+	else
+		current_topic_id = TOPIC_UNKNOWN;
+
     PRINTF("Received %u bytes from the topic \"%s\": \"", tot_len, topic);
 }
 
@@ -121,25 +220,162 @@ static void mqtt_incoming_publish_cb(void *arg, const char *topic, u32_t tot_len
  */
 static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 {
-    int i;
-
     LWIP_UNUSED_ARG(arg);
 
-    for (i = 0; i < len; i++)
+    for (int i = 0; i < len; i++)
     {
-        if (isprint(data[i]))
+        if (offset < PAYLOAD_BUFFER_SIZE - 1)  // Dejas espacio para '\0'
         {
-            PRINTF("%c", (char)data[i]);
-        }
-        else
-        {
-            PRINTF("\\x%02x", data[i]);
+            payload[offset++] = data[i];
         }
     }
 
-    if (flags & MQTT_DATA_FLAG_LAST)
+	if (flags & MQTT_DATA_FLAG_LAST)
+	{
+		payload[offset] = '\0';
+		offset = 0; // Reiniciar offset para el siguiente mensaje
+		PRINTF("\n\nData: %s\n", payload);
+
+		MqttMessage msg;
+		msg.topic = current_topic_id;
+		strncpy(msg.payload, payload, PAYLOAD_BUFFER_SIZE);
+
+		xQueueSend(mqtt_msg_queue, &msg, 0);
+
+//		switch (current_topic_id)
+//		{
+//			case TOPIC_SW:
+//				if (strcmp(payload, "ON") == 0)
+//				{
+//					SetFlagMsg(ON);
+//				}
+//
+//				else if (strcmp(payload, "OFF") == 0)
+//				{
+//					SetFlagMsg(OFF);
+//				}
+//				break;
+//
+//			case TOPIC_MED:
+//				if (strcmp(payload, "Medicate") == 0)
+//				{
+//					SetFlagMsg(SUPPLY);
+//				}
+//				break;
+//
+//			case TOPIC_HR:
+//				hr_value = atoi(payload);
+//
+//				if(hr_value > HR_LIMIT)
+//				{
+//					SetFlagAlarm(ON);
+//					SetFlagMsg(DANGER);
+//					SetFlagStablePacient(TRUE);
+//				}
+//				else if(GetFlagStablePacient())
+//				{
+//					SetFlagAlarm(OFF);
+//					SetFlagMsg(SAFE);
+//					SetFlagStablePacient(FALSE);
+//				}
+//				hr_value = 0;
+//
+//				break;
+//
+//			case TOPIC_TEMP:
+//				tmp_value = atoi(payload);
+//
+//				if(tmp_value > TEMP_LIMIT)
+//				{
+//					SetFlagAlarm(ON);
+//					SetFlagMsg(DANGER);
+//					SetFlagStablePacient(TRUE);
+//				}
+//				else if(GetFlagStablePacient())
+//				{
+//					SetFlagAlarm(OFF);
+//					SetFlagMsg(SAFE);
+//					SetFlagStablePacient(FALSE);
+//				}
+//				tmp_value = 0;
+//
+//				break;
+//
+//			default:
+//				PRINTF("Unknown topic\n");
+//				break;
+//		}
+
+
+
+	}
+}
+
+static void mqtt_message_handler_task(void *arg)
+{
+    MqttMessage msg;
+    while (1)
     {
-        PRINTF("\"\r\n");
+        if (xQueueReceive(mqtt_msg_queue, &msg, portMAX_DELAY) == pdPASS)
+        {
+            if (msg.topic == TOPIC_SW)
+            {
+                if (strcmp(msg.payload, "ON") == 0)
+                	SetFlagMsg(ON);
+
+                else if (strcmp(msg.payload, "OFF") == 0)
+                	SetFlagMsg(OFF);
+            }
+            else if (msg.topic == TOPIC_MED && strcmp(msg.payload, "Medicate") == 0)
+                SetFlagMsg(SUPPLY);
+
+            else if (msg.topic == TOPIC_HR)
+            {
+                hr_value = atoi(msg.payload);
+
+                if(hr_value > HR_MAX_LIMIT)
+                {
+                    SetFlagAlarm(ON);
+                    SetFlagMsg(DANGER);
+                    SetFlagStablePacient(TRUE);
+                }
+//                else if(hr_value > HR_MIN_LIMIT)
+//                {
+//					SetFlagMsg(CAUTION);
+//					SetFlagStablePacient(TRUE);
+//                }
+                else if(GetFlagStablePacient())
+                {
+                    SetFlagAlarm(OFF);
+                    SetFlagMsg(SAFE);
+                    SetFlagStablePacient(FALSE);
+                }
+                hr_value = 0;
+            }
+
+            else if (msg.topic == TOPIC_TEMP)
+            {
+                tmp_value = atoi(msg.payload);
+                if(tmp_value > TEMP_MAX_LIMIT)
+                {
+                    SetFlagAlarm(ON);
+                    SetFlagMsg(DANGER);
+                    SetFlagStablePacient(TRUE);
+                }
+//                else if(hr_value > TEMP_MIN_LIMIT)
+//                {
+//					SetFlagMsg(CAUTION);
+//					SetFlagStablePacient(TRUE);
+//                }
+                else if(GetFlagStablePacient())
+                {
+                    SetFlagAlarm(OFF);
+                    SetFlagMsg(SAFE);
+                    SetFlagStablePacient(FALSE);
+                }
+                tmp_value = 0;
+            }
+        }
     }
 }
 
@@ -148,8 +384,8 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
  */
 static void mqtt_subscribe_topics(mqtt_client_t *client)
 {
-    static const char *topics[] = {"lwip_topic/#", "lwip_other/#"};
-    int qos[]                   = {0, 1};
+    static const char *topics[] = {"monitor/sw", "monitor/med","lwip_topic/Pc", "lwip_topic/Temp"};
+    int qos[]                   = {0, 0, 0, 0};
     err_t err;
     int i;
 
@@ -252,14 +488,76 @@ static void mqtt_message_published_cb(void *arg, err_t err)
  */
 static void publish_message(void *ctx)
 {
-    static const char *topic   = "lwip_topic/Frida";
-    static const char *message = "prueba de envio de mensaje con webconfig";
+	static uint8_t f_alarm, f_msg;
+    static const char *topic1   = "monitor/alarm";
+    static const char *message1;
 
-    LWIP_UNUSED_ARG(ctx);
+    static const char *topic2   = "monitor/msg";
+    static const char *message2;
 
-    PRINTF("Going to publish to the topic \"%s\"...\r\n", topic);
+    f_alarm = GetFlagAlarm();
+    f_msg = GetFlagMsg();
 
-    mqtt_publish(mqtt_client, topic, message, strlen(message), 1, 0, mqtt_message_published_cb, (void *)topic);
+    if (f_msg != prev_flag_msg || f_alarm != prev_flag_alarm)
+	{
+    	if(f_alarm)
+		{
+			message1 = "Alarm On";
+		}
+		else
+		{
+			message1 = "Alarm Off";
+		}
+
+		switch(f_msg)
+		{
+			case ON:
+				message2 = "Successful Monitor On";
+				RGB_select_color_on(Blue);
+				break;
+
+			case OFF:
+				message2 = "Successful Monitor Off";
+				RGB_select_color_on(Black);
+				break;
+
+			case SUPPLY:
+				message2 = "Successful Supply Medicine";
+				RGB_select_color_on(Green);
+				break;
+
+			case SAFE:
+				message2 = "Stable Patient";
+				RGB_select_color_on(Black);
+				break;
+
+			case DANGER:
+				message2 = "Unstable Patient";
+				RGB_select_color_on(Red);
+				break;
+
+//			case CAUTION:
+//				message2 = "Call for help";
+//				RGB_select_color_on(Yellow);
+//				break;
+
+			default:
+				message2 = "Faulty Connection";
+				RGB_select_color_on(Black);
+				break;
+		}
+
+		LWIP_UNUSED_ARG(ctx);
+
+		PRINTF("Going to publish to the topic \"%s\"...\r\n", topic1);
+		PRINTF("Going to publish to the topic \"%s\"...\r\n", topic2);
+
+		mqtt_publish(mqtt_client, topic1, message1, strlen(message1), 1, 0, mqtt_message_published_cb, (void *)topic1);
+		mqtt_publish(mqtt_client, topic2, message2, strlen(message2), 1, 0, mqtt_message_published_cb, (void *)topic2);
+
+		prev_flag_msg = f_msg;
+		prev_flag_alarm = f_alarm;
+	}
 }
 
 /*!
@@ -307,7 +605,7 @@ static void app_thread(void *arg)
     }
 
     /* Publish some messages */
-    for (i = 0; i < 5;)
+    for (;;)
     {
         if (connected)
         {
@@ -397,6 +695,16 @@ void mqtt_freertos_run_thread(struct netif *netif)
         {
         }
     }
+
+    // Crear cola
+    mqtt_msg_queue = xQueueCreate(10, sizeof(MqttMessage));
+    if (mqtt_msg_queue == NULL) {
+        PRINTF("Error al crear la cola MQTT\n");
+        while (1);
+    }
+
+    // Crear tarea que procesará los mensajes
+    xTaskCreate(mqtt_message_handler_task, "mqtt_handler", 512, NULL, tskIDLE_PRIORITY + 2, NULL);
 
     generate_client_id();
 
