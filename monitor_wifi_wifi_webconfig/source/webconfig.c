@@ -654,7 +654,7 @@ void button_task(void *pvParameters)
 		{
 			GPIO_PortToggle(GPIO, 0U, 1U << 0U);
 			GPIO_PortToggle(GPIO, 0U, 1U << 1U);
-			//reset_saved_wifi_credentials(CONNECTION_INFO_FILENAME);
+			reset_saved_wifi_credentials(CONNECTION_INFO_FILENAME);
 			//NVIC_SystemReset();
 			PRINTF("\r\n[!] Se borraron las credenciales WiFi.\r\n");
 			PRINTF("[!] Por favor presiona el botón RESET de la placa para iniciar el modo de configuración de red.\r\n");
