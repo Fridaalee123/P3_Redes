@@ -17,6 +17,7 @@
 #include "timers.h"
 #include "httpsrv.h"
 #include "http_server.h"
+#include "mqtt_freertos.h"
 
 #include "fsl_debug_console.h"
 #include "webconfig.h"
@@ -25,6 +26,7 @@
 #include <stdio.h>
 
 #include "FreeRTOS.h"
+#include "GPIO.h"
 
 /*******************************************************************************
  * Prototypes
@@ -389,7 +391,9 @@ static void main_task(void *arg)
     char password[WPL_WIFI_PASSWORD_LENGTH];
     char security[WIFI_SECURITY_LENGTH];
 
+    reset_saved_wifi_credentials(CONNECTION_INFO_FILENAME);
     result = get_saved_wifi_credentials(CONNECTION_INFO_FILENAME, ssid, password, security);
+
 
     if (result == 0 && strcmp(ssid, "") != 0)
     {
@@ -465,6 +469,8 @@ static void main_task(void *arg)
                 vTaskSuspend(NULL);
                 CleanUpAP();
         }
+        mqtt_freertos_run_thread(netif_default);
+
     }
 }
 
@@ -586,7 +592,10 @@ static uint32_t SetBoardToClient()
             char ip[16];
             WPL_GetIP(ip, 1);
             PRINTF(" Now join that network on your device and connect to this IP: %s\r\n", ip);
+            mqtt_freertos_run_thread(netif_default);
+
         }
+
     }
     return 0;
 }
@@ -620,15 +629,13 @@ int main(void)
 {
     /* Initialize the hardware */
     BOARD_InitHardware();
-
-    /* Create the main Task */
+    GPIO_init();
     if (xTaskCreate(main_task, "main_task", 2048, NULL, configMAX_PRIORITIES - 4, &g_BoardState.mainTask) != pdPASS)
     {
         PRINTF("[!] MAIN Task creation failed!\r\n");
         while (1)
             ;
     }
-
     /* Run RTOS */
     vTaskStartScheduler();
 
@@ -636,3 +643,5 @@ int main(void)
     for (;;)
         ;
 }
+
+
